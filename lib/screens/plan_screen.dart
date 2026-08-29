@@ -1,6 +1,7 @@
-import 'package:flutter/material.dart';
+ import 'package:flutter/material.dart';
 import '../storage.dart';
 import '../notification_service.dart';
+import '../scheduler.dart';
 
 class PlanScreen extends StatefulWidget {
   const PlanScreen({super.key});
@@ -51,6 +52,50 @@ class _PlanScreenState extends State<PlanScreen> {
     if (id == null || id.isEmpty) return null;
     final s = Storage.allSubjects().where((s) => s['id'] == id);
     return s.isEmpty ? null : s.first;
+  }
+
+  /// Marking a task done is "I studied/read this." If it has a subject,
+  /// this feeds Study's spaced-repetition engine directly: first time
+  /// creates the topic, every time after that counts as a review and
+  /// advances it up the interval ladder.
+  Future<void> _recordRevisionProgress(Map task) async {
+    final subjectId = (task['subjectId'] ?? '') as String;
+    final title = ((task['title'] ?? '') as String).trim();
+    if (subjectId.isEmpty || title.isEmpty) return;
+
+    final config = Storage.getConfig();
+    final matches = Storage.allTopics().where(
+      (t) => t['subjectId'] == subjectId && (t['name'] as String).toLowerCase() == title.toLowerCase(),
+    );
+
+    if (matches.isEmpty) {
+      final now = DateTime.now();
+      final topic = {
+        'id': Storage.newId(),
+        'subjectId': subjectId,
+        'name': title,
+        'createdAt': now.toIso8601String(),
+        'lastReviewedAt': null,
+        'stage': -1,
+        'nextDueAt': Scheduler.computeInitialDue(now, config).toIso8601String(),
+        'manualPriority': 3,
+        'totalReviews': 0,
+      };
+      await Storage.saveTopic(topic);
+    } else {
+      final updated = Scheduler.applyReview(Map.from(matches.first), config);
+      await Storage.saveTopic(updated);
+    }
+  }
+
+  Future<void> _toggleDone(Map t, bool? v) async {
+    final wasDone = t['done'] == true;
+    t['done'] = v;
+    await Storage.saveTask(Map.from(t));
+    if (v == true && !wasDone) {
+      await _recordRevisionProgress(t);
+    }
+    setState(() {});
   }
 
   @override
@@ -108,12 +153,7 @@ class _PlanScreenState extends State<PlanScreen> {
                       child: ListTile(
                         leading: Checkbox(
                           value: t['done'] == true,
-                          onChanged: (v) {
-                            setState(() {
-                              t['done'] = v;
-                              Storage.saveTask(Map.from(t));
-                            });
-                          },
+                          onChanged: (v) => _toggleDone(t, v),
                         ),
                         title: Text(
                           t['title'],

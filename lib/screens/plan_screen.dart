@@ -1,4 +1,4 @@
- import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../storage.dart';
 import '../notification_service.dart';
 import '../scheduler.dart';

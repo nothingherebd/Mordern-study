@@ -6,7 +6,7 @@ const _weekdayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', '
 
 /// Everything the priority/revision engine uses is editable here:
 /// the interval ladder (days between reviews), the weekly revision day,
-/// the catch-up window, and default timer length.
+/// the catch-up window, default timer length, and the alarm behavior.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
   @override
@@ -66,11 +66,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _save();
   }
 
+  Future<void> _pickFallbackTime() async {
+    final hour = (config['revisionReminderHour'] ?? 18) as int;
+    final minute = (config['revisionReminderMinute'] ?? 0) as int;
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: hour, minute: minute),
+    );
+    if (picked != null) {
+      setState(() {
+        config['revisionReminderHour'] = picked.hour;
+        config['revisionReminderMinute'] = picked.minute;
+      });
+      _save();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final fallbackHour = (config['revisionReminderHour'] ?? 18) as int;
+    final fallbackMinute = (config['revisionReminderMinute'] ?? 0) as int;
+    final fallbackLabel =
+        '${fallbackHour.toString().padLeft(2, '0')}:${fallbackMinute.toString().padLeft(2, '0')}';
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        _SectionCard(
+          title: 'Revision alerts',
+          subtitle: 'An alarm fires ahead of a topic\'s usual read time (carried over from Plan), so you get a heads-up before it\'s due.',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Text('Alert lead time:', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Slider(
+                      value: (config['revisionLeadMinutes'] as int).toDouble(),
+                      min: 0,
+                      max: 120,
+                      divisions: 24,
+                      activeColor: kAmber,
+                      label: '${config['revisionLeadMinutes']} min',
+                      onChanged: (v) => setState(() => config['revisionLeadMinutes'] = v.round()),
+                      onChangeEnd: (_) => _save(),
+                    ),
+                  ),
+                  Text('${config['revisionLeadMinutes']}m', style: const TextStyle(color: Colors.white)),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const Text('Fallback alert time:', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                  const Spacer(),
+                  OutlinedButton(onPressed: _pickFallbackTime, child: Text(fallbackLabel)),
+                ],
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Used when a topic has no scheduled time from Plan.',
+                style: TextStyle(color: Colors.white38, fontSize: 11),
+              ),
+            ],
+          ),
+        ),
         _SectionCard(
           title: 'Revision intervals',
           subtitle: 'Days between reviews as a topic climbs the ladder — the science of spaced repetition. Fully editable.',

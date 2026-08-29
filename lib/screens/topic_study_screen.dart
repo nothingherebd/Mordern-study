@@ -3,12 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../storage.dart';
 import '../scheduler.dart';
+import '../revision_alerts.dart';
 import '../main.dart' show kAmber;
 
-/// The black countdown study screen. Opens for a single topic. Start/Stop
-/// plays a system click and haptic each time, and the revision-progress
-/// bar shows how far the topic has climbed the spaced-repetition ladder
-/// so it's never forgotten.
+/// The black countdown study screen. Opens for a single topic. When the
+/// countdown finishes it buzzes repeatedly for ~30 seconds (like an alarm)
+/// until dismissed. The revision-progress bar shows how far the topic has
+/// climbed the spaced-repetition ladder so it's never forgotten.
 class TopicStudyScreen extends StatefulWidget {
   final Map topic;
   final Map subject;
@@ -22,6 +23,7 @@ class _TopicStudyScreenState extends State<TopicStudyScreen> {
   late Map topic;
   late Map config;
   Timer? _ticker;
+  Timer? _buzzTimer;
   bool running = false;
   int totalSeconds = 25 * 60;
   int remainingSeconds = 25 * 60;
@@ -39,6 +41,7 @@ class _TopicStudyScreenState extends State<TopicStudyScreen> {
   @override
   void dispose() {
     _ticker?.cancel();
+    _buzzTimer?.cancel();
     super.dispose();
   }
 
@@ -54,11 +57,9 @@ class _TopicStudyScreenState extends State<TopicStudyScreen> {
   void _toggleStartStop() {
     if (running) {
       _ticker?.cancel();
-      SystemSound.play(SystemSoundType.click);
       HapticFeedback.lightImpact();
       setState(() => running = false);
     } else {
-      SystemSound.play(SystemSoundType.click);
       HapticFeedback.lightImpact();
       setState(() => running = true);
       _ticker = Timer.periodic(const Duration(seconds: 1), (t) {
@@ -68,8 +69,7 @@ class _TopicStudyScreenState extends State<TopicStudyScreen> {
             remainingSeconds = 0;
             running = false;
           });
-          SystemSound.play(SystemSoundType.alert);
-          HapticFeedback.mediumImpact();
+          _startBuzzAlarm();
           _showCompleteDialog();
         } else {
           setState(() => remainingSeconds--);
@@ -78,8 +78,30 @@ class _TopicStudyScreenState extends State<TopicStudyScreen> {
     }
   }
 
+  /// Buzzes repeatedly for ~30 seconds, like an alarm, so a finished
+  /// session is impossible to miss even silently.
+  void _startBuzzAlarm() {
+    _buzzTimer?.cancel();
+    int elapsedMs = 0;
+    const step = Duration(milliseconds: 400);
+    HapticFeedback.heavyImpact();
+    _buzzTimer = Timer.periodic(step, (t) {
+      elapsedMs += step.inMilliseconds;
+      HapticFeedback.heavyImpact();
+      if (elapsedMs >= 30000) {
+        t.cancel();
+      }
+    });
+  }
+
+  void _stopBuzzAlarm() {
+    _buzzTimer?.cancel();
+    _buzzTimer = null;
+  }
+
   void _reset() {
     _ticker?.cancel();
+    _stopBuzzAlarm();
     setState(() {
       running = false;
       remainingSeconds = totalSeconds;
@@ -104,12 +126,14 @@ class _TopicStudyScreenState extends State<TopicStudyScreen> {
         ],
       ),
     );
+    _stopBuzzAlarm();
     if (markReviewed == true) _markReviewed();
   }
 
   Future<void> _markReviewed() async {
     final updated = Scheduler.applyReview(topic, config);
     await Storage.saveTopic(updated);
+    await RevisionAlerts.schedule(updated, config);
     setState(() => topic = updated);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

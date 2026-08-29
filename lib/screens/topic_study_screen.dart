@@ -3,13 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../storage.dart';
 import '../scheduler.dart';
-import '../sound_service.dart';
 import '../main.dart' show kAmber;
 
 /// The black countdown study screen. Opens for a single topic. Start/Stop
-/// plays a sound each time (per the "sound from first page" request), and
-/// the revision-progress bar shows how far the topic has climbed the
-/// spaced-repetition ladder so it's never forgotten.
+/// plays a system click and haptic each time, and the revision-progress
+/// bar shows how far the topic has climbed the spaced-repetition ladder
+/// so it's never forgotten.
 class TopicStudyScreen extends StatefulWidget {
   final Map topic;
   final Map subject;
@@ -55,10 +54,11 @@ class _TopicStudyScreenState extends State<TopicStudyScreen> {
   void _toggleStartStop() {
     if (running) {
       _ticker?.cancel();
-      SoundService.playStop();
+      SystemSound.play(SystemSoundType.click);
+      HapticFeedback.lightImpact();
       setState(() => running = false);
     } else {
-      SoundService.playStart();
+      SystemSound.play(SystemSoundType.click);
       HapticFeedback.lightImpact();
       setState(() => running = true);
       _ticker = Timer.periodic(const Duration(seconds: 1), (t) {
@@ -68,7 +68,7 @@ class _TopicStudyScreenState extends State<TopicStudyScreen> {
             remainingSeconds = 0;
             running = false;
           });
-          SoundService.playComplete();
+          SystemSound.play(SystemSoundType.alert);
           HapticFeedback.mediumImpact();
           _showCompleteDialog();
         } else {

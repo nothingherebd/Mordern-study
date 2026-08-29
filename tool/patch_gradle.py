@@ -1,69 +1,87 @@
 #!/usr/bin/env python3
 """
-Robustly patches the freshly-scaffolded android/settings.gradle and
-android/app/build.gradle to use a modern Kotlin plugin version and
-compileSdk 35 (required by audioplayers_android).
+Robustly patches the freshly-scaffolded Android Gradle files to use a
+modern Kotlin version and compileSdk 35 (required by audioplayers_android).
 
-Uses regex (not a plain sed one-liner) so it survives Flutter changing
-quote style / whitespace in its scaffold template between versions, and
-prints whether a change was actually made so a future failure is easy
-to diagnose from the CI log instead of failing silently.
+Handles both the modern plugins{} block style (settings.gradle) and the
+legacy ext.kotlin_version style (root build.gradle), and both `key value`
+and `key = value` Groovy syntax, since Flutter's scaffold template has
+changed this formatting across versions. Every patch prints whether it
+actually matched, so failures are visible in the CI log instead of silent.
 """
+import os
 import re
 import sys
 
 SETTINGS = "android/settings.gradle"
+ROOT_BUILD = "android/build.gradle"
 APP_BUILD = "android/app/build.gradle"
 
 KOTLIN_VERSION = "1.9.24"
 COMPILE_SDK = "35"
 
 
-def patch_settings():
-    with open(SETTINGS, "r", encoding="utf-8") as f:
+def _patch_file(path, patterns_and_replacements, label):
+    if not os.path.exists(path):
+        print(f"[patch_gradle] {label}: {path} does not exist — skipping")
+        return
+    with open(path, "r", encoding="utf-8") as f:
         content = f.read()
-
-    new_content = re.sub(
-        r'id\s+[\'"]org\.jetbrains\.kotlin\.android[\'"]\s+version\s+[\'"][0-9.]+[\'"]',
-        f'id "org.jetbrains.kotlin.android" version "{KOTLIN_VERSION}"',
-        content,
-    )
-
-    if new_content != content:
-        with open(SETTINGS, "w", encoding="utf-8") as f:
-            f.write(new_content)
-        print(f"[patch_gradle] settings.gradle: Kotlin plugin version -> {KOTLIN_VERSION}")
+    original = content
+    for pattern, replacement in patterns_and_replacements:
+        content = re.sub(pattern, replacement, content)
+    if content != original:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"[patch_gradle] {label}: patched")
     else:
-        print("[patch_gradle] WARNING: settings.gradle Kotlin plugin line not found — no change made")
+        print(f"[patch_gradle] {label}: WARNING — no matching pattern found, no change made")
 
 
-def patch_app_build():
-    with open(APP_BUILD, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    new_content = re.sub(
-        r'compileSdk(Version)?\s+flutter\.compileSdkVersion',
-        f'compileSdk {COMPILE_SDK}',
-        content,
-    )
-    new_content = re.sub(
-        r'compileSdk(Version)?\s+\d+',
-        f'compileSdk {COMPILE_SDK}',
-        new_content,
+def patch_settings_gradle():
+    _patch_file(
+        SETTINGS,
+        [(
+            r'id\s+[\'"]org\.jetbrains\.kotlin\.android[\'"]\s+version\s+[\'"][0-9.]+[\'"]',
+            f'id "org.jetbrains.kotlin.android" version "{KOTLIN_VERSION}"',
+        )],
+        "settings.gradle (plugins block Kotlin version)",
     )
 
-    if new_content != content:
-        with open(APP_BUILD, "w", encoding="utf-8") as f:
-            f.write(new_content)
-        print(f"[patch_gradle] app/build.gradle: compileSdk -> {COMPILE_SDK}")
-    else:
-        print("[patch_gradle] WARNING: app/build.gradle compileSdk line not found — no change made")
+
+def patch_root_build_gradle():
+    _patch_file(
+        ROOT_BUILD,
+        [(
+            r'ext\.kotlin_version\s*=\s*[\'"][0-9.]+[\'"]',
+            f"ext.kotlin_version = '{KOTLIN_VERSION}'",
+        ), (
+            r'org\.jetbrains\.kotlin:kotlin-gradle-plugin:[0-9.]+',
+            f'org.jetbrains.kotlin:kotlin-gradle-plugin:{KOTLIN_VERSION}',
+        )],
+        "android/build.gradle (ext.kotlin_version / classpath)",
+    )
+
+
+def patch_app_build_gradle():
+    _patch_file(
+        APP_BUILD,
+        [(
+            r'compileSdk(Version)?\s*=?\s*flutter\.compileSdkVersion',
+            f'compileSdk = {COMPILE_SDK}',
+        ), (
+            r'compileSdk(Version)?\s*=?\s*\d+',
+            f'compileSdk = {COMPILE_SDK}',
+        )],
+        "app/build.gradle (compileSdk)",
+    )
 
 
 if __name__ == "__main__":
     try:
-        patch_settings()
-        patch_app_build()
-    except FileNotFoundError as e:
-        print(f"[patch_gradle] Could not find {e.filename} — did the Android scaffold step run first?", file=sys.stderr)
+        patch_settings_gradle()
+        patch_root_build_gradle()
+        patch_app_build_gradle()
+    except Exception as e:
+        print(f"[patch_gradle] ERROR: {e}", file=sys.stderr)
         sys.exit(1)

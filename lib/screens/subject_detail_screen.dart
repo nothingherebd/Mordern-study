@@ -3,10 +3,10 @@ import '../storage.dart';
 import '../scheduler.dart';
 import 'topic_study_screen.dart';
 
-/// The "beside page" — pushed on top of the Study home page when a
-/// subject (e.g. "English") is tapped. Lists every topic under that
-/// subject with its revision status, and opens the black countdown
-/// screen when a topic is tapped.
+/// The "beside page" — pushed on top of Study home when a subject
+/// (e.g. "English") is tapped. Topics here are populated automatically
+/// from Plan: checking off a task with this subject creates or reviews
+/// the matching topic. Tapping a topic opens the black countdown screen.
 class SubjectDetailScreen extends StatefulWidget {
   final Map subject;
   const SubjectDetailScreen({super.key, required this.subject});
@@ -38,14 +38,14 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: Text(
-                  'No topics under ${widget.subject['name']} yet.\nAdd your first topic below.',
+                  'No topics under ${widget.subject['name']} yet.\n\nCheck off a task with this subject in Plan — it\'ll show up here and start being scheduled for revision.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.white54),
                 ),
               ),
             )
           : ListView.builder(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 90),
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
               itemCount: topics.length,
               itemBuilder: (context, i) {
                 final t = topics[i];
@@ -82,6 +82,7 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                     ),
                     trailing: IconButton(
                       icon: const Icon(Icons.close, size: 18),
+                      tooltip: 'Remove from revision tracking',
                       onPressed: () async {
                         await Storage.deleteTopic(t['id']);
                         setState(() {});
@@ -100,80 +101,6 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen> {
                 );
               },
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddTopicSheet(context),
-        icon: const Icon(Icons.add),
-        label: const Text('Add topic'),
-      ),
-    );
-  }
-
-  void _showAddTopicSheet(BuildContext context) {
-    final nameCtrl = TextEditingController();
-    int manualPriority = 3;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) {
-        return StatefulBuilder(builder: (ctx, setSheet) {
-          return Padding(
-            padding: EdgeInsets.only(
-                left: 16, right: 16, top: 16, bottom: MediaQuery.of(ctx).viewInsets.bottom + 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text('New topic', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: nameCtrl,
-                  autofocus: true,
-                  decoration: const InputDecoration(labelText: 'Topic name'),
-                ),
-                const SizedBox(height: 14),
-                const Text('Priority', style: TextStyle(fontSize: 12, color: Colors.white54)),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  children: List.generate(5, (i) {
-                    final v = i + 1;
-                    return ChoiceChip(
-                      label: Text('$v'),
-                      selected: manualPriority == v,
-                      onSelected: (_) => setSheet(() => manualPriority = v),
-                    );
-                  }),
-                ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: () async {
-                    final name = nameCtrl.text.trim();
-                    if (name.isEmpty) return;
-                    final config = Storage.getConfig();
-                    final now = DateTime.now();
-                    final topic = {
-                      'id': Storage.newId(),
-                      'subjectId': widget.subject['id'],
-                      'name': name,
-                      'createdAt': now.toIso8601String(),
-                      'lastReviewedAt': null,
-                      'stage': -1,
-                      'nextDueAt': Scheduler.computeInitialDue(now, config).toIso8601String(),
-                      'manualPriority': manualPriority,
-                      'totalReviews': 0,
-                    };
-                    await Storage.saveTopic(topic);
-                    if (ctx.mounted) Navigator.pop(ctx);
-                    setState(() {});
-                  },
-                  child: const Text('Add topic'),
-                ),
-              ],
-            ),
-          );
-        });
-      },
     );
   }
 }

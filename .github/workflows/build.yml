@@ -31,6 +31,11 @@ jobs:
           sed -i 's/id "org.jetbrains.kotlin.android" version "[0-9.]*"/id "org.jetbrains.kotlin.android" version "1.9.24"/' android/settings.gradle || true
           sed -i "s/ext.kotlin_version = '[0-9.]*'/ext.kotlin_version = '1.9.24'/" android/build.gradle || true
 
+      - name: Bump compileSdk for audioplayers
+        run: |
+          sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 35/' android/app/build.gradle.kts 2>/dev/null || true
+          sed -i 's/compileSdk flutter.compileSdkVersion/compileSdk 35/' android/app/build.gradle 2>/dev/null || true
+
       - name: Patch AndroidManifest
         run: python3 tool/patch_manifest.py
 

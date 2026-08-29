@@ -26,13 +26,8 @@ jobs:
           flutter create --platforms=android --org com.bcsplanner --project-name bcs_planner /tmp/scaffold
           cp -r /tmp/scaffold/android .
 
-      - name: Patch Gradle config (Kotlin version + compileSdk)
+      - name: Patch Gradle config (Kotlin version)
         run: python3 tool/patch_gradle.py
-
-      - name: Pre-install Android SDK Platform 35
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Patch AndroidManifest
         run: python3 tool/patch_manifest.py

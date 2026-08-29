@@ -26,15 +26,13 @@ jobs:
           flutter create --platforms=android --org com.bcsplanner --project-name bcs_planner /tmp/scaffold
           cp -r /tmp/scaffold/android .
 
-      - name: Update Kotlin version
-        run: |
-          sed -i 's/id "org.jetbrains.kotlin.android" version "[0-9.]*"/id "org.jetbrains.kotlin.android" version "1.9.24"/' android/settings.gradle || true
-          sed -i "s/ext.kotlin_version = '[0-9.]*'/ext.kotlin_version = '1.9.24'/" android/build.gradle || true
+      - name: Patch Gradle config (Kotlin version + compileSdk)
+        run: python3 tool/patch_gradle.py
 
-      - name: Bump compileSdk for audioplayers
+      - name: Pre-install Android SDK Platform 35
         run: |
-          sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 35/' android/app/build.gradle.kts 2>/dev/null || true
-          sed -i 's/compileSdk flutter.compileSdkVersion/compileSdk 35/' android/app/build.gradle 2>/dev/null || true
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Patch AndroidManifest
         run: python3 tool/patch_manifest.py

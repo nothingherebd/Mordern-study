@@ -145,11 +145,11 @@ class RootShell extends StatefulWidget {
 class _RootShellState extends State<RootShell> {
   int _index = 0;
 
-  static const _titles = ['Study', 'Plan', 'Alarms', 'Settings'];
+  static const _titles = ['Plan', 'Study', 'Alarms', 'Settings'];
 
   final _screens = const [
-    StudyHomeScreen(),
     PlanScreen(),
+    StudyHomeScreen(),
     AlarmsScreen(),
     SettingsScreen(),
   ];
@@ -163,8 +163,8 @@ class _RootShellState extends State<RootShell> {
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.auto_stories_outlined), selectedIcon: Icon(Icons.auto_stories), label: 'Study'),
           NavigationDestination(icon: Icon(Icons.checklist_outlined), selectedIcon: Icon(Icons.checklist), label: 'Plan'),
+          NavigationDestination(icon: Icon(Icons.auto_stories_outlined), selectedIcon: Icon(Icons.auto_stories), label: 'Study'),
           NavigationDestination(icon: Icon(Icons.alarm_outlined), selectedIcon: Icon(Icons.alarm), label: 'Alarms'),
           NavigationDestination(icon: Icon(Icons.tune), label: 'Settings'),
         ],

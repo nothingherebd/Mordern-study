@@ -1,174 +1,137 @@
-import 'package:flutter/material.dart';
-import 'storage.dart';
-import 'notification_service.dart';
-import 'screens/study_home_screen.dart';
-import 'screens/plan_screen.dart';
-import 'screens/alarms_screen.dart';
-import 'screens/settings_screen.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await Storage.init();
-  await NotificationService.init();
-  runApp(const BcsPlannerApp());
-}
+/// Plain Map<String,dynamic> records are used throughout instead of
+/// generated Hive TypeAdapters, so no build_runner / code generation
+/// step is needed — this keeps the GitHub Actions build simple.
+class Storage {
+  static late Box tasksBox;
+  static late Box subjectsBox;
+  static late Box topicsBox;
+  static late Box alarmsBox;
+  static late Box settingsBox;
 
-class BcsPlannerApp extends StatelessWidget {
-  const BcsPlannerApp({super.key});
+  static Future<void> init() async {
+    await Hive.initFlutter();
+    tasksBox = await Hive.openBox('tasks');
+    subjectsBox = await Hive.openBox('subjects');
+    topicsBox = await Hive.openBox('topics');
+    alarmsBox = await Hive.openBox('alarms');
+    settingsBox = await Hive.openBox('settings');
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Study Planner',
-      debugShowCheckedModeBanner: false,
-      theme: buildAppTheme(),
-      home: const RootShell(),
-    );
+    if (subjectsBox.isEmpty) {
+      for (final s in defaultSubjects) {
+        await subjectsBox.put(s['id'], s);
+      }
+    }
+  }
+
+  static String newId() =>
+      DateTime.now().microsecondsSinceEpoch.toString() +
+      (100 + DateTime.now().millisecond).toString();
+
+  // ---- Tasks ----
+  static List<Map> tasksForDate(String dateKey) {
+    return tasksBox.values
+        .cast<Map>()
+        .where((t) => t['dateKey'] == dateKey)
+        .toList()
+      ..sort((a, b) => (a['start'] ?? '99:99')
+          .toString()
+          .compareTo((b['start'] ?? '99:99').toString()));
+  }
+
+  static Future<void> saveTask(Map task) async {
+    await tasksBox.put(task['id'], task);
+  }
+
+  static Future<void> deleteTask(String id) async => tasksBox.delete(id);
+
+  // ---- Subjects ----
+  static List<Map> allSubjects() => subjectsBox.values.cast<Map>().toList();
+
+  static Future<void> saveSubject(Map s) async => subjectsBox.put(s['id'], s);
+
+  static Future<void> deleteSubject(String id) async {
+    await subjectsBox.delete(id);
+    final topics = topicsBox.values.cast<Map>().where((t) => t['subjectId'] == id).toList();
+    for (final t in topics) {
+      await topicsBox.delete(t['id']);
+    }
+  }
+
+  // ---- Topics (study items under a subject, spaced-repetition scheduled) ----
+  static List<Map> topicsForSubject(String subjectId) =>
+      topicsBox.values.cast<Map>().where((t) => t['subjectId'] == subjectId).toList();
+
+  static List<Map> allTopics() => topicsBox.values.cast<Map>().toList();
+
+  static Future<void> saveTopic(Map t) async => topicsBox.put(t['id'], t);
+
+  static Future<void> deleteTopic(String id) async => topicsBox.delete(id);
+
+  // ---- Alarms ----
+  static List<Map> allAlarms() {
+    final list = alarmsBox.values.cast<Map>().toList();
+    list.sort((a, b) => a['time'].toString().compareTo(b['time'].toString()));
+    return list;
+  }
+
+  static Future<void> saveAlarm(Map a) async => alarmsBox.put(a['id'], a);
+
+  static Future<void> deleteAlarm(String id) async => alarmsBox.delete(id);
+
+  // ---- Settings (revision engine configuration — everything user-tunable) ----
+  static const Map<String, dynamic> defaultConfig = {
+    // Spaced-repetition ladder, in days. Fully editable from Settings.
+    'intervals': [1, 4, 30, 45, 60, 90, 150, 200, 280, 365],
+    // Weekly "catch-up" revision day (Dart weekday: Mon=1 ... Sun=7). Default Friday.
+    'revisionWeekday': 5,
+    // On the revision day, pull in anything touched within this many days too.
+    'revisionWindowDays': 6,
+    'defaultTimerMinutes': 25,
+    // How many minutes before a topic's usual read time to fire the revision alarm.
+    'revisionLeadMinutes': 15,
+    // Fallback alarm time (24h) for topics with no known usual read time.
+    'revisionReminderHour': 18,
+    'revisionReminderMinute': 0,
+  };
+
+  static Map<String, dynamic> getConfig() {
+    final raw = settingsBox.get('config');
+    final merged = Map<String, dynamic>.from(defaultConfig);
+    if (raw is Map) {
+      raw.forEach((k, v) => merged[k as String] = v);
+    }
+    merged['intervals'] = (merged['intervals'] as List).cast<int>();
+    return merged;
+  }
+
+  static Future<void> saveConfig(Map<String, dynamic> config) async {
+    await settingsBox.put('config', config);
   }
 }
 
-// ---- Shared design tokens, used across the whole app ----
-const kBg = Color(0xFF0A0B0F);
-const kSurface = Color(0xFF15171F);
-const kSurfaceHigh = Color(0xFF1D2029);
-const kAmber = Color(0xFFE0A93A);
-const kBlack = Color(0xFF000000);
+const List<String> defaultTemplate = [
+  'Bangla — grammar & literature',
+  'English — grammar & comprehension',
+  'Bangladesh Affairs',
+  'International Affairs',
+  'General Science',
+  'Computer & ICT',
+  'Math & Mental Ability',
+  'Ethics, Values & Good Governance',
+  'Current Affairs — newspaper review',
+  'Revision + MCQ practice',
+];
 
-ThemeData buildAppTheme() {
-  const bg = kBg;
-  const surface = kSurface;
-  const amber = kAmber;
+final List<Map<String, dynamic>> defaultSubjects = [
+  {'id': 'subj-bangla', 'name': 'Bangla', 'color': 0xFFB8863B, 'start': '', 'end': '', 'days': [1, 2, 3, 4, 5, 6, 7], 'notify': false},
+  {'id': 'subj-english', 'name': 'English', 'color': 0xFF6366F1, 'start': '', 'end': '', 'days': [1, 2, 3, 4, 5, 6, 7], 'notify': false},
+  {'id': 'subj-math', 'name': 'Math & Mental Ability', 'color': 0xFFF59E0B, 'start': '', 'end': '', 'days': [1, 2, 3, 4, 5, 6, 7], 'notify': false},
+  {'id': 'subj-science', 'name': 'Science & Tech', 'color': 0xFFEC4899, 'start': '', 'end': '', 'days': [1, 2, 3, 4, 5, 6, 7], 'notify': false},
+];
 
-  final colorScheme = ColorScheme.fromSeed(
-    seedColor: amber,
-    brightness: Brightness.dark,
-    surface: surface,
-    primary: amber,
-    secondary: amber,
-  );
-
-  return ThemeData(
-    useMaterial3: true,
-    brightness: Brightness.dark,
-    colorScheme: colorScheme,
-    scaffoldBackgroundColor: bg,
-    fontFamily: 'Roboto',
-    appBarTheme: const AppBarTheme(
-      backgroundColor: bg,
-      foregroundColor: Colors.white,
-      elevation: 0,
-      centerTitle: false,
-      titleTextStyle: TextStyle(
-        fontSize: 22,
-        fontWeight: FontWeight.w800,
-        letterSpacing: 0.1,
-        color: Colors.white,
-      ),
-    ),
-    cardTheme: CardTheme(
-      color: surface,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: Colors.white.withOpacity(0.06)),
-      ),
-    ),
-    navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: surface,
-      elevation: 0,
-      indicatorColor: amber.withOpacity(0.20),
-      labelTextStyle: WidgetStateProperty.resolveWith((states) {
-        final selected = states.contains(WidgetState.selected);
-        return TextStyle(
-          fontSize: 11,
-          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-          color: selected ? amber : Colors.white70,
-        );
-      }),
-      iconTheme: WidgetStateProperty.resolveWith((states) {
-        final selected = states.contains(WidgetState.selected);
-        return IconThemeData(color: selected ? amber : Colors.white54);
-      }),
-    ),
-    filledButtonTheme: FilledButtonThemeData(
-      style: FilledButton.styleFrom(
-        backgroundColor: amber,
-        foregroundColor: Colors.black,
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
-        textStyle: const TextStyle(fontWeight: FontWeight.w700),
-      ),
-    ),
-    outlinedButtonTheme: OutlinedButtonThemeData(
-      style: OutlinedButton.styleFrom(
-        foregroundColor: Colors.white,
-        side: BorderSide(color: Colors.white.withOpacity(0.2)),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-    ),
-    listTileTheme: const ListTileThemeData(
-      iconColor: Colors.white70,
-      textColor: Colors.white,
-    ),
-    inputDecorationTheme: InputDecorationTheme(
-      filled: true,
-      fillColor: Colors.white.withOpacity(0.04),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide.none,
-      ),
-      labelStyle: const TextStyle(color: Colors.white60),
-    ),
-    progressIndicatorTheme: const ProgressIndicatorThemeData(
-      color: amber,
-      linearTrackColor: Color(0xFF262A36),
-    ),
-    textTheme: const TextTheme(
-      bodyLarge: TextStyle(color: Colors.white),
-      bodyMedium: TextStyle(color: Colors.white),
-      titleMedium: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-    ),
-    dividerColor: Colors.white.withOpacity(0.08),
-  );
-}
-
-class RootShell extends StatefulWidget {
-  const RootShell({super.key});
-  @override
-  State<RootShell> createState() => _RootShellState();
-}
-
-class _RootShellState extends State<RootShell> {
-  int _index = 0;
-
-  static const _titles = ['Plan', 'Study', 'Alarms', 'Settings'];
-
-  final _screens = const [
-    PlanScreen(),
-    StudyHomeScreen(),
-    AlarmsScreen(),
-    SettingsScreen(),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(_titles[_index])),
-      body: SafeArea(top: false, child: _screens[_index]),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.checklist_outlined), selectedIcon: Icon(Icons.checklist), label: 'Plan'),
-          NavigationDestination(icon: Icon(Icons.auto_stories_outlined), selectedIcon: Icon(Icons.auto_stories), label: 'Study'),
-          NavigationDestination(icon: Icon(Icons.alarm_outlined), selectedIcon: Icon(Icons.alarm), label: 'Alarms'),
-          NavigationDestination(icon: Icon(Icons.tune), label: 'Settings'),
-        ],
-      ),
-    );
-  }
-}
+const List<int> presetColors = [
+  0xFFB8863B, 0xFF6366F1, 0xFFF59E0B, 0xFFEC4899,
+  0xFF4C7A5E, 0xFFA8462F, 0xFF3B82F6, 0xFF10B981,
+];

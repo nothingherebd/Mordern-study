@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../storage.dart';
 import '../notification_service.dart';
 import '../scheduler.dart';
+import '../revision_alerts.dart';
 
 class PlanScreen extends StatefulWidget {
   const PlanScreen({super.key});
@@ -56,24 +57,32 @@ class _PlanScreenState extends State<PlanScreen> {
 
   /// Marking a task done is "I studied/read this." If it has a subject,
   /// this feeds Study's spaced-repetition engine directly: first time
-  /// creates the topic, every time after that counts as a review and
-  /// advances it up the interval ladder.
+  /// creates the topic (carrying over the task's scheduled time as its
+  /// "usual read time"), every time after that counts as a review and
+  /// advances it up the interval ladder. Either way, a revision alarm
+  /// gets (re)scheduled ahead of the next due date.
   Future<void> _recordRevisionProgress(Map task) async {
     final subjectId = (task['subjectId'] ?? '') as String;
     final title = ((task['title'] ?? '') as String).trim();
     if (subjectId.isEmpty || title.isEmpty) return;
 
     final config = Storage.getConfig();
+    final subject = subjectFor(subjectId);
+    final preferredTime = (task['start'] ?? '') as String;
+
     final matches = Storage.allTopics().where(
       (t) => t['subjectId'] == subjectId && (t['name'] as String).toLowerCase() == title.toLowerCase(),
     );
 
+    Map topic;
     if (matches.isEmpty) {
       final now = DateTime.now();
-      final topic = {
+      topic = {
         'id': Storage.newId(),
         'subjectId': subjectId,
+        'subjectName': subject?['name'] ?? '',
         'name': title,
+        'preferredTime': preferredTime,
         'createdAt': now.toIso8601String(),
         'lastReviewedAt': null,
         'stage': -1,
@@ -81,11 +90,13 @@ class _PlanScreenState extends State<PlanScreen> {
         'manualPriority': 3,
         'totalReviews': 0,
       };
-      await Storage.saveTopic(topic);
     } else {
-      final updated = Scheduler.applyReview(Map.from(matches.first), config);
-      await Storage.saveTopic(updated);
+      topic = Scheduler.applyReview(Map.from(matches.first), config);
+      if (preferredTime.isNotEmpty) topic['preferredTime'] = preferredTime;
+      topic['subjectName'] = subject?['name'] ?? topic['subjectName'] ?? '';
     }
+    await Storage.saveTopic(topic);
+    await RevisionAlerts.schedule(topic, config);
   }
 
   Future<void> _toggleDone(Map t, bool? v) async {
